@@ -11,4 +11,7 @@ pip install -r requirements.txt
 ```shell
 cd block-cipher--cryptanalysis
 python demo-ECBvsCBC.py
+
+python demo-oracle-server.py
+python demo-attacker-to-oracle-server.py
 ```
